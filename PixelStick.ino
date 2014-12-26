@@ -1,13 +1,13 @@
 #include <SPI.h>
-
-#include <FastLED/FastLED.h>
 #include <Adafruit_ILI9341/Adafruit_ILI9341.h>
 #include <Adafruit_GFX/Adafruit_GFX.h>
 #include <Sd/Sd.h>
 #include <touch/ads7843.h>
+#include <FastLED/FastLED.h>
 
-#define DATA_PIN 13
-#define NUM_LEDS 60
+#define CLOCK_PIN 13
+#define DATA_PIN 15
+#define NUM_LEDS 288
 
 #define MAINMENU 0
 #define PAINT 1
@@ -20,6 +20,8 @@
 #define FULLRAINMODE 2
 #define PAINTMODE 3
 
+#define COLSMAX 3
+
 
 //SdFat SD;
 // Define the array of leds
@@ -28,12 +30,16 @@ CRGB leds[NUM_LEDS];
 double _x0, _y0, _x1, _y1, _x1n, _y1n;
 int k = 0;
 
+uint8_t COLSMODE = 0;
+
+uint16_t scale = 311;
+
 int colour;
 
 bool play = false;
 bool playonce = false;
 
-int paintField[270][60];
+//int paintField[270][60];
 
 int brightness = 32;
 int xt, yt;
@@ -65,14 +71,46 @@ uint8_t namesIndx = 0;
 
 uint8_t flag, speed, namesIndxMax;
 
+
+uint32_t x, y, v_time, hue_time, hxy;
+
+// Play with the values of the variables below and see what kinds of effects they
+// have!  More octaves will make things slower.
+
+// how many octaves to use for the brightness and hue functions
+uint8_t octaves = 3;
+uint8_t hue_octaves = 3;
+
+// the 'distance' between points on the x and y axis
+int xscale = 7771;
+int yscale = 57771;
+
+// the 'distance' between x/y points for the hue noise
+int hue_scale = 10;
+
+// how fast we move through time & hue noise
+int time_speed = 1111;
+int hue_speed = 31;
+
+// adjust these values to move along the x or y axis between frames
+int x_speed = 931;
+int y_speed = 1711;
+
+
 void setup()
 {
 	Serial.begin(9600);
 	//while (!Serial) {
 	//; // wait for serial port to connect. Needed for Leonardo only
 	//}
+
+	hxy = (uint32_t)((uint32_t)random16() << 16) + (uint32_t)random16();
+	x = (uint32_t)((uint32_t)random16() << 16) + (uint32_t)random16();
+	y = (uint32_t)((uint32_t)random16() << 16) + (uint32_t)random16();
+	v_time = (uint32_t)((uint32_t)random16() << 16) + (uint32_t)random16();
+	hue_time = (uint32_t)((uint32_t)random16() << 16) + (uint32_t)random16();
 	
-	FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
+	FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, GBR, DATA_RATE_MHZ(8)>(leds, NUM_LEDS);
 	FastLED.setBrightness(brightness);
 	speed = 5;
 	tft.begin();
@@ -136,7 +174,7 @@ void loop()
 			{
 				while (imfile.available())
 				{
-					for (int i = 0; i < 60; i++)
+					for (int i = 0; i < NUM_LEDS; i++)
 					{
 						leds[i].red = imfile.read();
 						leds[i].green = imfile.read();
@@ -147,6 +185,7 @@ void loop()
 					}
 					//Serial.println(';');
 					FastLED.show();
+					FastLED.show();
 					delay(speed);
 				}
 			}
@@ -156,11 +195,47 @@ void loop()
 		}
 		break;
 	case RAINMODE:
-		fill_rainbow(leds, NUM_LEDS, k++);
+		//fill_rainbow(leds, NUM_LEDS, k++,3);
+		//fillnoise8();
+		/*for (int i = 0; i < NUM_LEDS; i++)
+		{
+			hsv2rgb(k++%360, 255, 255, &r, &g, &b, 255);
+			leds[i] = CRGB(r, g, b);
+		}
+
+		*/
+		switch (COLSMODE)
+		{
+		case 0:
+			fill_rainbow(leds, NUM_LEDS, k++, 3);
+			break;
+		case 1:
+			fill_solid(leds, NUM_LEDS, CHSV(k++, 255, 255));
+			break;
+		case 2:
+			fill_2dnoise16(leds, NUM_LEDS, 1, false,
+				octaves, x, xscale, y, yscale, v_time,
+				hue_octaves, hxy, hue_scale, hxy, hue_scale, hue_time, false);
+
+			x += x_speed;
+			y += y_speed;
+			v_time += time_speed;
+			hue_time += hue_speed;
+			break;
+		}
+		//Fire2012();
 		FastLED.show();
 		delay(speed);
 		break;
+		
 	case FULLRAINMODE:
+		/*hsv2rgb(k++%360, 255, 255, &r, &g, &b, 255);
+		for (int i = 0; i < NUM_LEDS; i++)
+		{
+			
+			leds[i] = CRGB(r, g, b);
+		}
+		*/
 		fill_solid(leds, NUM_LEDS, CHSV(k++, 255, 255));
 		//fill_rainbow(leds, NUM_LEDS, k++);
 		FastLED.show();
@@ -284,6 +359,7 @@ void mainmenu()
 			{
 				mode = PAINT;
 				drawMenu();
+				
 			}
 			if (xt<120 && yt<103)
 			{
@@ -296,6 +372,11 @@ void mainmenu()
 				tft.fillRect(121, 240, 118, 112, 0);
 				tft.setCursor(135, 250);
 				tft.println("Play");
+				COLSMODE++;
+				if (COLSMODE >= COLSMAX)
+				{
+					COLSMODE = 0;
+				}
 				drawmode = RAINMODE;
 			}
 			else if (xt<120 && yt>206)
@@ -304,7 +385,12 @@ void mainmenu()
 				tft.fillRect(121, 240, 118, 112, 0);
 				tft.setCursor(135, 250);
 				tft.println("Play");
-				drawmode = FULLRAINMODE;
+				COLSMODE--;
+				if (COLSMODE == 255)
+				{
+					COLSMODE = COLSMAX - 1;
+				}
+				drawmode = RAINMODE;
 			}
 			else if (xt>120 && yt>103 && yt<206) // Play once
 			{
@@ -373,7 +459,7 @@ void setupmenu()
 		yt = (int)(p.y*0.095 - 40);
 		if (flag)
 		{
-			if (yt < 25 && xt>120)
+			if (yt < 30 && xt>120)
 			{
 				mode = MAINMENU;
 				drawMenu();
@@ -389,7 +475,7 @@ void setupmenu()
 			}
 			else if (xt<120 && yt<206&&yt>106)
 			{
-				if (speed>1) speed--;
+				if (speed>0) speed--;
 				tft.fillRect(100, 160, 40, 25, 0);
 				tft.setTextSize(3);
 				tft.setCursor(100, 160);
@@ -433,10 +519,10 @@ void setupmenu()
 			}
 			if (xt<120 && yt<103 && yt>25)
 			{
-				namesIndx++;
-				if (namesIndx >= namesIndxMax)
+				namesIndx--;
+				if (namesIndx == 255)
 				{
-					namesIndx = 0;
+					namesIndx = namesIndxMax - 1;
 				}
 				//Serial.println(filename);
 				filename = names[namesIndx];
@@ -448,7 +534,7 @@ void setupmenu()
 				
 				//drawMenu();
 			}
-			else if (xt>120 && yt<103 && yt>25)
+			else if (xt>120 && yt<103 && yt>30)
 			{
 				namesIndx++;
 				if (namesIndx >= namesIndxMax)
@@ -468,6 +554,10 @@ void setupmenu()
 		}
 	}
 }
+
+
+
+
 void drawMenu()
 {
 	switch (mode)
@@ -482,10 +572,10 @@ void drawMenu()
 		tft.println("Setup");
 		tft.setCursor(135, 40);
 		tft.println("Paint");
-		tft.setCursor(15, 150);
-		tft.println("Rain");
-		tft.setCursor(15, 250);
-		tft.println("RainC");
+		tft.setCursor(5, 150);
+		tft.println("Cols +");
+		tft.setCursor(5, 250);
+		tft.println("Cols -");
 		tft.setCursor(135, 140);
 		tft.println("Play");
 		tft.setCursor(135, 170);
@@ -608,5 +698,31 @@ void colourmenu()
 				drawMenu();
 			}
 		}
+	}
+}
+void Fire2012()
+{
+	// Array of temperature readings at each simulation cell
+	static byte heat[NUM_LEDS];
+
+	// Step 1.  Cool down every cell a little
+	for (int i = 0; i < NUM_LEDS; i++) {
+		heat[i] = qsub8(heat[i], random8(0, ((55 * 10) / NUM_LEDS) + 2));
+	}
+
+	// Step 2.  Heat from each cell drifts 'up' and diffuses a little
+	for (int k = NUM_LEDS - 1; k >= 2; k--) {
+		heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
+	}
+
+	// Step 3.  Randomly ignite new 'sparks' of heat near the bottom
+	if (random8() < 120) {
+		int y = random8(7);
+		heat[y] = qadd8(heat[y], random8(160, 255));
+	}
+
+	// Step 4.  Map from heat cells to LED colors
+	for (int j = 0; j < NUM_LEDS; j++) {
+		leds[j] = HeatColor(heat[j]);
 	}
 }
